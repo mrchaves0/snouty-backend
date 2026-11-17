@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: snouty-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/snouty_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 20000
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  sql:
+    init:
+      mode: never
+
+snouty:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:U25vdXR5UGxhdGFmb3JtYUludGVncmFsUmVzY2F0ZUFkb3BjaW9uUGVycm9zWUdhdG9zMjAyNVNlY3JldEtleQ==}
+      expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
