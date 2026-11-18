@@ -8,12 +8,14 @@ import com.snouty.api.exception.ResourceNotFoundException;
 import com.snouty.api.exception.UnauthorizedOperationException;
 import com.snouty.api.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReporteService {
@@ -23,6 +25,7 @@ public class ReporteService {
     private final AsignacionRepository asignacionRepository;
     private final SeguimientoRepository seguimientoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final AnimalRepository animalRepository;
 
     @Transactional
     public ReporteDetalleResponse crearReporte(ReporteCreateRequest request, Usuario ciudadanoAutenticado) {
@@ -238,25 +241,9 @@ public class ReporteService {
 
         verificarPermisoVoluntarioOAdmin(reporteId, usuarioActual);
 
-        long conteoSeguimientosPrevios = seguimientoRepository.countByReporteId(reporteId);
-        if (conteoSeguimientosPrevios < 1) {
-            throw new BusinessRuleException("No se puede cerrar el rescate sin al menos un seguimiento registrado previamente.");
-        }
-
         if (request.urlFotoCierre() == null || request.urlFotoCierre().isBlank()) {
             throw new BusinessRuleException("Es obligatorio adjuntar la evidencia fotografica de cierre para marcar el caso como RESCATADO.");
         }
-
-        var evidenciaCierre = Evidencia.builder()
-                .reporte(reporte)
-                .urlFoto(request.urlFotoCierre().trim())
-                .tipo(TipoEvidencia.CIERRE)
-                .fecha(LocalDateTime.now())
-                .descripcion(request.descripcionEvidencia().trim())
-                .build();
-        reporte.getEvidencias().add(evidenciaRepository.save(evidenciaCierre));
-
-        reporte.setEstado(EstadoReporte.RESCATADO);
 
         Usuario autor = (usuarioActual != null)
                 ? usuarioActual
@@ -265,11 +252,43 @@ public class ReporteService {
                         .findFirst()
                         .orElse(reporte.getCiudadano());
 
+        // Si el voluntario cierra directamente el caso y aun no habia seguimiento previo en BD,
+        // registra automaticamente el seguimiento de intervencion previo dentro de la transaccion
+        long conteoSeguimientosPrevios = seguimientoRepository.countByReporteId(reporteId);
+        if (conteoSeguimientosPrevios < 1) {
+            registrarSeguimientoInterno(
+                    reporte,
+                    autor,
+                    EstadoReporte.EN_PROCESO,
+                    "Intervencion en terreno y aseguramiento previo al cierre del rescate.",
+                    request.urlFotoCierre().trim()
+            );
+        }
+
+        var descEvidencia = (request.descripcionEvidencia() != null && !request.descripcionEvidencia().isBlank())
+                ? request.descripcionEvidencia().trim()
+                : "Evidencia fotografica del rescate exitoso.";
+
+        var evidenciaCierre = Evidencia.builder()
+                .reporte(reporte)
+                .urlFoto(request.urlFotoCierre().trim())
+                .tipo(TipoEvidencia.CIERRE)
+                .fecha(LocalDateTime.now())
+                .descripcion(descEvidencia)
+                .build();
+        reporte.getEvidencias().add(evidenciaRepository.save(evidenciaCierre));
+
+        reporte.setEstado(EstadoReporte.RESCATADO);
+
+        var obsFinal = (request.observacionFinal() != null && !request.observacionFinal().isBlank())
+                ? request.observacionFinal().trim()
+                : "Ejemplar rescatado exitosamente y trasladado al refugio para valoracion veterinaria.";
+
         registrarSeguimientoInterno(
                 reporte,
                 autor,
                 EstadoReporte.RESCATADO,
-                request.observacionFinal().trim(),
+                obsFinal,
                 request.urlFotoCierre().trim()
         );
 
@@ -280,7 +299,47 @@ public class ReporteService {
             }
         }
 
-        return mapToDetalleResponse(reporteRepository.save(reporte));
+        var reporteGuardado = reporteRepository.save(reporte);
+
+        // =========================================================================
+        // INGRESO AUTOMATICO AL INVENTARIO DEL REFUGIO Y COLA VETERINARIA
+        // =========================================================================
+        if (!animalRepository.existsByReporteOrigenId(reporteGuardado.getId())) {
+            String fotoAnimal = request.urlFotoCierre().trim();
+            if (fotoAnimal.isBlank() && !reporteGuardado.getEvidencias().isEmpty()) {
+                fotoAnimal = reporteGuardado.getEvidencias().get(0).getUrlFoto();
+            }
+
+            String etiquetaEspecie = (reporteGuardado.getEspecie() == Especie.GATO) ? "Michi" : "Peludito";
+            String nombreProvisionalAuto = etiquetaEspecie + " Rescatado #" + reporteGuardado.getId();
+
+            String descripcionIngreso = String.format(
+                    "Rescatado en %s. Reporte original: %s. Cierre de operativo: %s",
+                    reporteGuardado.getDireccionReferencia(),
+                    reporteGuardado.getDescripcion(),
+                    obsFinal
+            );
+            if (descripcionIngreso.length() > 490) {
+                descripcionIngreso = descripcionIngreso.substring(0, 487) + "...";
+            }
+
+            var nuevoAnimal = Animal.builder()
+                    .reporteOrigen(reporteGuardado)
+                    .especie(reporteGuardado.getEspecie())
+                    .nombreProvisional(nombreProvisionalAuto)
+                    .edadAproximada("Pendiente valoracion")
+                    .sexo(SexoAnimal.DESCONOCIDO)
+                    .tamano(TamanoAnimal.MEDIANO)
+                    .descripcion(descripcionIngreso)
+                    .urlFoto(fotoAnimal)
+                    .estadoAdopcion(EstadoAdopcion.EN_RECUPERACION)
+                    .build();
+
+            animalRepository.save(nuevoAnimal);
+            log.info("Animal creado automaticamente en refugio (EN_RECUPERACION) desde Reporte #{}", reporteGuardado.getId());
+        }
+
+        return mapToDetalleResponse(reporteGuardado);
     }
 
     @Transactional(readOnly = true)
