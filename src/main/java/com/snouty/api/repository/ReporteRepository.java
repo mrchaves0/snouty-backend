@@ -16,12 +16,12 @@ import java.util.List;
 public interface ReporteRepository extends JpaRepository<Reporte, Long> {
 
     @Query("SELECT r FROM Reporte r WHERE " +
-            "(:#{#especie} IS NULL OR r.especie = :especie) AND " +
-            "(:#{#estado} IS NULL OR r.estado = :estado) AND " +
-            "(:#{#prioridad} IS NULL OR r.prioridad = :prioridad) AND " +
-            "(:#{#fechaDesde} IS NULL OR r.fechaCreacion >= :fechaDesde) AND " +
-            "(:#{#fechaHasta} IS NULL OR r.fechaCreacion <= :fechaHasta) " +
-            "ORDER BY r.fechaCreacion DESC")
+           "(:#{#especie} IS NULL OR r.especie = :especie) AND " +
+           "(:#{#estado} IS NULL OR r.estado = :estado) AND " +
+           "(:#{#prioridad} IS NULL OR r.prioridad = :prioridad) AND " +
+           "(:#{#fechaDesde} IS NULL OR r.fechaCreacion >= :fechaDesde) AND " +
+           "(:#{#fechaHasta} IS NULL OR r.fechaCreacion <= :fechaHasta) " +
+           "ORDER BY r.fechaCreacion DESC")
     List<Reporte> findWithFilters(
             @Param("especie") Especie especie,
             @Param("estado") EstadoReporte estado,
@@ -30,8 +30,18 @@ public interface ReporteRepository extends JpaRepository<Reporte, Long> {
             @Param("fechaHasta") LocalDateTime fechaHasta
     );
 
-    // Métodos automáticos para las estadísticas que busca EstadisticaService
-    long countByEstado(EstadoReporte estado);
+    @Query("SELECT r FROM Reporte r WHERE " +
+           "(:#{#especie} IS NULL OR r.especie = :especie) AND " +
+           "(:#{#estado} IS NULL OR r.estado = :estado) AND " +
+           "(:#{#prioridad} IS NULL OR r.prioridad = :prioridad) " +
+           "ORDER BY r.fechaCreacion DESC")
+    List<Reporte> listarConFiltrosOpcionales(
+            @Param("especie") Especie especie,
+            @Param("estado") EstadoReporte estado,
+            @Param("prioridad") PrioridadReporte prioridad
+    );
 
     long countByEspecie(Especie especie);
+
+    long countByEstado(EstadoReporte estado);
 }
