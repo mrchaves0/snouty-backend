@@ -30,11 +30,7 @@ public class AnimalService {
     private final UsuarioRepository usuarioRepository;
 
     @Transactional
-    public AnimalResponse registrarAnimal(AnimalCreateRequest request, Usuario admin) {
-        if (admin != null && admin.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UnauthorizedOperationException("Solo un ADMINISTRADOR puede registrar fichas de animales.");
-        }
-
+    public AnimalResponse registrarAnimal(AnimalCreateRequest request) {
         var reporte = reporteRepository.findById(request.reporteOrigenId())
                 .orElseThrow(() -> new ResourceNotFoundException("No existe el reporte de origen con ID: " + request.reporteOrigenId()));
 
@@ -63,7 +59,6 @@ public class AnimalService {
 
     @Transactional
     public List<AnimalResponse> listarAnimales(Especie especie, EstadoAdopcion estado) {
-        // Sincroniza cualquier reporte que ya este RESCATADO en Supabase pero no tuviera fila en animales
         List<Reporte> reportesRescatados = reporteRepository.findAll().stream()
                 .filter(r -> r.getEstado() == EstadoReporte.RESCATADO)
                 .toList();
@@ -90,9 +85,7 @@ public class AnimalService {
             }
         }
 
-        List<Animal> lista = animalRepository.findAllByOrderByIdDesc();
-
-        return lista.stream()
+        return animalRepository.findAllByOrderByIdDesc().stream()
                 .filter(a -> especie == null || a.getEspecie() == especie)
                 .filter(a -> estado == null || a.getEstadoAdopcion() == estado)
                 .map(this::mapToResponse)
@@ -100,34 +93,52 @@ public class AnimalService {
     }
 
     @Transactional(readOnly = true)
-    public AnimalResponse obtenerDetalle(Long id) {
+    public AnimalResponse obtenerAnimalPorId(Long id) {
         var animal = animalRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("No existe el animal con ID: " + id));
         return mapToResponse(animal);
     }
 
     @Transactional
-    public AnimalResponse cambiarEstado(Long id, CambiarEstadoAnimalRequest request, Usuario admin) {
-        if (admin != null && admin.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UnauthorizedOperationException("Solo un ADMINISTRADOR puede cambiar el estado de adopcion.");
-        }
-
+    public AnimalResponse cambiarEstadoAdopcion(Long id, EstadoAdopcion nuevoEstado) {
         var animal = animalRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("No existe el animal con ID: " + id));
 
-        if (request.nuevoEstado() == EstadoAdopcion.DISPONIBLE) {
+        if (nuevoEstado == EstadoAdopcion.DISPONIBLE) {
             boolean tieneAval = revisionRepository.existsByAnimalIdAndAptoAdopcionTrue(animal.getId());
             if (!tieneAval) {
                 throw new BusinessRuleException("No se puede publicar como DISPONIBLE sin aval veterinario.");
             }
         }
 
-        animal.setEstadoAdopcion(request.nuevoEstado());
+        animal.setEstadoAdopcion(nuevoEstado);
         return mapToResponse(animalRepository.save(animal));
     }
 
+    @Transactional(readOnly = true)
+    public List<RevisionVeterinariaResponse> listarRevisionesPorAnimal(Long animalId) {
+        var animal = animalRepository.findById(animalId)
+                .orElseThrow(() -> new ResourceNotFoundException("No existe el animal con ID: " + animalId));
+
+        return animal.getRevisiones() == null
+                ? List.of()
+                : animal.getRevisiones().stream()
+                .map(r -> new RevisionVeterinariaResponse(
+                        r.getId(),
+                        animal.getId(),
+                        animal.getNombreProvisional(),
+                        r.getVeterinario().getId(),
+                        r.getVeterinario().getNombre(),
+                        r.getFecha(),
+                        r.getDiagnostico(),
+                        r.getObservaciones(),
+                        r.getAptoAdopcion()
+                ))
+                .toList();
+    }
+
     @Transactional
-    public RevisionVeterinariaResponse registrarRevision(
+    public RevisionVeterinariaResponse registrarRevisionVeterinaria(
             Long animalId,
             RevisionVeterinariaCreateRequest request,
             Usuario veterinario
