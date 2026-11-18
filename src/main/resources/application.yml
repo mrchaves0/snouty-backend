@@ -1,5 +1,4 @@
-
-erver:
+server:
   port: ${PORT:8080}
 
 spring:
@@ -11,9 +10,15 @@ spring:
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 10
-      connection-timeout: 20000
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      data-source-properties:
+        prepareThreshold: 0
   jpa:
+    open-in-view: true
     hibernate:
       ddl-auto: update
     show-sql: false

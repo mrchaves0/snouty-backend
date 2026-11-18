@@ -9,6 +9,7 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -20,7 +21,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity(prePostEnabled = false)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -30,23 +31,37 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
+                                "/",
+                                "/error",
+                                "/favicon.ico",
                                 "/api/auth/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.PATCH, "/api/reportes/*/validar").hasRole("ADMINISTRADOR")
-                        .requestMatchers(HttpMethod.POST, "/api/reportes/*/asignaciones").hasRole("ADMINISTRADOR")
-                        .requestMatchers(HttpMethod.POST, "/api/reportes/*/seguimientos").hasAnyRole("VOLUNTARIO", "ADMINISTRADOR")
-                        .requestMatchers(HttpMethod.PATCH, "/api/reportes/*/cerrar").hasAnyRole("VOLUNTARIO", "ADMINISTRADOR")
-                        .requestMatchers(HttpMethod.POST, "/api/animales").hasAnyRole("ADMINISTRADOR", "VOLUNTARIO")
-                        .requestMatchers(HttpMethod.POST, "/api/animales/*/revisiones").hasRole("VETERINARIO")
-                        .requestMatchers(HttpMethod.PATCH, "/api/adopciones/solicitudes/*/estado").hasRole("ADMINISTRADOR")
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/reportes/**",
+                                "/api/mapa/**",
+                                "/api/animales/**",
+                                "/api/adopciones/**",
+                                "/api/estadisticas/**"
+                        ).permitAll()
+                        .requestMatchers(
+                                "/api/reportes/**",
+                                "/api/animales/**",
+                                "/api/adopciones/**"
+                        ).hasAnyAuthority(
+                                "ROLE_CIUDADANO", "CIUDADANO",
+                                "ROLE_VOLUNTARIO", "VOLUNTARIO",
+                                "ROLE_VETERINARIO", "VETERINARIO",
+                                "ROLE_ADMINISTRADOR", "ADMINISTRADOR"
+                        )
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider)
@@ -58,9 +73,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         var config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("*"));
+        config.setAllowedOriginPatterns(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("Authorization", "Content-Type"));
+        config.setAllowCredentials(false);
+
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

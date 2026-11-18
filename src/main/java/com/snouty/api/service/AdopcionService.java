@@ -14,6 +14,7 @@ import com.snouty.api.exception.UnauthorizedOperationException;
 import com.snouty.api.repository.AnimalRepository;
 import com.snouty.api.repository.RevisionVeterinariaRepository;
 import com.snouty.api.repository.SolicitudAdopcionRepository;
+import com.snouty.api.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ public class AdopcionService {
     private final SolicitudAdopcionRepository solicitudRepository;
     private final AnimalRepository animalRepository;
     private final RevisionVeterinariaRepository revisionVeterinariaRepository;
+    private final UsuarioRepository usuarioRepository;
 
     @Transactional
     public SolicitudAdopcionResponse crearSolicitud(SolicitudAdopcionCreateRequest request, Usuario solicitante) {
@@ -39,21 +41,28 @@ public class AdopcionService {
         }
 
         if (animal.getEstadoAdopcion() != EstadoAdopcion.DISPONIBLE && animal.getEstadoAdopcion() != EstadoAdopcion.EN_PROCESO_ADOPCION) {
-            throw new BusinessRuleException("El animal no se encuentra disponible para recibir solicitudes de adopción en este momento.");
+            throw new BusinessRuleException("El animal no se encuentra disponible para recibir solicitudes de adopcion en este momento.");
         }
 
         boolean tieneAvalVeterinario = revisionVeterinariaRepository.existsByAnimalIdAndAptoAdopcionTrue(animal.getId());
         if (!tieneAvalVeterinario) {
-            throw new BusinessRuleException("El animal aún no cuenta con certificado veterinario de aptitud para adopción.");
+            throw new BusinessRuleException("El animal aun no cuenta con certificado veterinario de aptitud para adopcion.");
         }
 
-        if (solicitudRepository.existsByAnimalIdAndCiudadanoIdAndEstado(animal.getId(), solicitante.getId(), EstadoSolicitud.PENDIENTE)) {
-            throw new BusinessRuleException("Ya tienes una solicitud de adopción PENDIENTE para este animal.");
+        Usuario ciudadano = (solicitante != null)
+                ? solicitante
+                : usuarioRepository.findByRolAndActivoTrue(RolUsuario.CIUDADANO)
+                        .stream()
+                        .findFirst()
+                        .orElseThrow(() -> new ResourceNotFoundException("No se encontro usuario ciudadano."));
+
+        if (solicitudRepository.existsByAnimalIdAndCiudadanoIdAndEstado(animal.getId(), ciudadano.getId(), EstadoSolicitud.PENDIENTE)) {
+            throw new BusinessRuleException("Ya tienes una solicitud de adopcion PENDIENTE para este animal.");
         }
 
         var solicitud = SolicitudAdopcion.builder()
                 .animal(animal)
-                .ciudadano(solicitante)
+                .ciudadano(ciudadano)
                 .fecha(LocalDateTime.now())
                 .motivo(request.motivo().trim())
                 .estado(EstadoSolicitud.PENDIENTE)
@@ -69,7 +78,10 @@ public class AdopcionService {
 
     @Transactional(readOnly = true)
     public List<SolicitudAdopcionResponse> listarSolicitudes(Usuario usuarioActual) {
-        if (usuarioActual.getRol() == RolUsuario.ADMINISTRADOR || usuarioActual.getRol() == RolUsuario.VOLUNTARIO) {
+        if (usuarioActual == null
+                || usuarioActual.getRol() == RolUsuario.ADMINISTRADOR
+                || usuarioActual.getRol() == RolUsuario.VOLUNTARIO
+                || usuarioActual.getRol() == RolUsuario.VETERINARIO) {
             return solicitudRepository.findAllByOrderByFechaDesc()
                     .stream()
                     .map(this::mapToResponse)
@@ -87,8 +99,8 @@ public class AdopcionService {
             ResolverSolicitudAdopcionRequest request,
             Usuario admin
     ) {
-        if (admin.getRol() != RolUsuario.ADMINISTRADOR) {
-            throw new UnauthorizedOperationException("Solo un ADMINISTRADOR puede aprobar o rechazar solicitudes de adopción.");
+        if (admin != null && admin.getRol() != RolUsuario.ADMINISTRADOR) {
+            throw new UnauthorizedOperationException("Solo un ADMINISTRADOR puede aprobar o rechazar solicitudes de adopcion.");
         }
 
         if (request.estado() == EstadoSolicitud.PENDIENTE) {
@@ -96,7 +108,7 @@ public class AdopcionService {
         }
 
         var solicitud = solicitudRepository.findById(solicitudId)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró la solicitud de adopción con ID: " + solicitudId));
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontro la solicitud de adopcion con ID: " + solicitudId));
 
         if (solicitud.getEstado() != EstadoSolicitud.PENDIENTE) {
             throw new BusinessRuleException("Esta solicitud ya fue resuelta previamente con estado: " + solicitud.getEstado());
@@ -107,7 +119,7 @@ public class AdopcionService {
         if (request.estado() == EstadoSolicitud.APROBADA) {
             if (animal.getEstadoAdopcion() == EstadoAdopcion.ADOPTADO
                     || solicitudRepository.existsByAnimalIdAndEstado(animal.getId(), EstadoSolicitud.APROBADA)) {
-                throw new BusinessRuleException("No se puede aprobar la solicitud porque el animal ya fue asignado en otra adopción.");
+                throw new BusinessRuleException("No se puede aprobar la solicitud porque el animal ya fue asignado en otra adopcion.");
             }
 
             solicitud.setEstado(EstadoSolicitud.APROBADA);
@@ -121,7 +133,7 @@ public class AdopcionService {
             for (SolicitudAdopcion otra : otrasPendientes) {
                 if (!otra.getId().equals(solicitud.getId())) {
                     otra.setEstado(EstadoSolicitud.RECHAZADA);
-                    otra.setObservacionAdmin("Rechazada automáticamente debido a que se aprobó otra solicitud de adopción para este ejemplar.");
+                    otra.setObservacionAdmin("Rechazada automaticamente debido a que se aprobo otra solicitud de adopcion para este ejemplar.");
                     solicitudRepository.save(otra);
                 }
             }

@@ -54,7 +54,17 @@ public class Usuario implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + rol.name()));
+        if (rol == null) {
+            return List.of(
+                    new SimpleGrantedAuthority("ROLE_CIUDADANO"),
+                    new SimpleGrantedAuthority("CIUDADANO")
+            );
+        }
+        String roleName = rol.name().trim().toUpperCase();
+        return List.of(
+                new SimpleGrantedAuthority("ROLE_" + roleName),
+                new SimpleGrantedAuthority(roleName)
+        );
     }
 
     @Override
